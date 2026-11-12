@@ -1,0 +1,8 @@
+{
+  "id": "limits-tracker",
+  "name": "Limits Tracker",
+  "version": "0.1.0",
+  "description": "Track Claude rate limits in real-time",
+  "publisher": "renanluiz",
+  "license": "MIT"
+}

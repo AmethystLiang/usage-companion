@@ -1,0 +1,7 @@
+{
+  "name": "limits-tracker",
+  "version": "0.1.0",
+  "description": "Acompanha limites de sessão, semanais e ritmo de uso do Claude",
+  "license": "MIT",
+  "author": { "name": "Renan" }
+}
