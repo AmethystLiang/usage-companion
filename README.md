@@ -1,4 +1,4 @@
-# Limits Tracker
+# Usage Companion
 
 An Orca panel that shows your Claude 5-hour and 7-day usage limits, with the time each one resets.
 It reads the usage Orca already keeps for your Claude account and refreshes every minute while the

@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "execution": "trusted-worker",
   "id": "limits-tracker",
-  "name": "Limits Tracker",
-  "version": "0.2.0",
+  "name": "Usage Companion",
+  "version": "0.2.1",
   "description": "Shows your Claude 5-hour and 7-day usage limits and when each one resets, refreshed every minute.",
   "repository": "https://github.com/renanluiz/limits-tracker",
   "license": "MIT",
@@ -16,7 +16,7 @@
     "panels": [
       {
         "id": "limits",
-        "title": "Claude Limits",
+        "title": "Usage Companion",
         "icon": "gauge",
         "entry": "src/panel.tsx",
         "ui": "components"
