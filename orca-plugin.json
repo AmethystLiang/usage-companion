@@ -3,8 +3,8 @@
   "execution": "trusted-worker",
   "id": "limits-tracker",
   "name": "Usage Companion",
-  "version": "0.2.2",
-  "description": "Shows your Claude 5-hour and 7-day usage limits and when each one resets, refreshed every minute.",
+  "version": "0.3.0",
+  "description": "Your Claude 5-hour and weekly limits, your pace through the week, skill use and daily tokens.",
   "repository": "https://github.com/renanluiz/usage-companion",
   "license": "MIT",
   "engines": {
@@ -12,15 +12,35 @@
   },
   "pluginApi": 1,
   "main": "worker/main.mjs",
+  "capabilities": [
+    {
+      "kind": "storage:own"
+    }
+  ],
   "contributes": {
     "panels": [
       {
         "id": "limits",
         "title": "Usage Companion",
         "icon": "gauge",
-        "entry": "src/panel.tsx",
-        "ui": "components"
+        "entry": "panel/index.html"
       }
     ]
-  }
+  },
+  "cover": {
+    "path": "assets/cover.png",
+    "alt": "Usage Companion panel beside the app, showing Claude 5-hour and weekly limit bars with reset times."
+  },
+  "screenshots": [
+    {
+      "path": "assets/screenshot-1.png",
+      "alt": "Usage Companion showing 5-hour and weekly limit progress bars, reset times, skills and daily token share.",
+      "caption": "Session and weekly limits, with reset times"
+    },
+    {
+      "path": "assets/screenshot-2.png",
+      "alt": "Usage Companion weekly pace chart comparing your usage with the ideal line and projection, with skills and daily tokens.",
+      "caption": "Pace, skills and tokens"
+    }
+  ]
 }
