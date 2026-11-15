@@ -1,12 +1,8 @@
-import { execFile } from 'node:child_process'
 import { createReadStream } from 'node:fs'
-import { readFile, readdir, stat } from 'node:fs/promises'
-import { homedir, userInfo } from 'node:os'
+import { readdir, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { promisify } from 'node:util'
-
-const execFileAsync = promisify(execFile)
 
 const MINUTE = 60_000
 const DAY = 24 * 60 * MINUTE
@@ -14,126 +10,80 @@ const HISTORY_KEEP_MS = 14 * DAY
 const SAMPLE_EVERY_MS = 5 * MINUTE
 const HISTORY_CAP = 4000
 const TRANSCRIPT_WINDOW_MS = 8 * DAY
-
-const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
-const KEYCHAIN_SERVICE = 'Claude Code-credentials'
 const FETCH_EVERY_MS = MINUTE
 const BACKOFF_MS = 5 * MINUTE
-const REQUEST_TIMEOUT_MS = 10_000
-const projectsDir = () => join(homedir(), '.claude', 'projects')
+const REQUEST_TIMEOUT_MS = 20_000
+const MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
+const PROBE_MODEL = 'claude-haiku-4-5-20251001'
+const SYSTEM_PROMPT = "You are Claude Code, Anthropic's official CLI for Claude."
+const TOKEN_KEY = 'claudeToken'
+const TOKEN_PREFIX = 'sk-ant-'
 
+const projectsDir = () => join(homedir(), '.claude', 'projects')
 const transcriptCache = new Map()
 
 let lastFetchAt = 0
 let retryAt = 0
 let lastGood = null
 
-function keychainAccount() {
-  let user
-  try {
-    user = process.env.USER || process.env.USERNAME || userInfo().username
-  } catch {
-    return 'claude-code-user'
-  }
-  return /^[a-zA-Z0-9._-]+$/.test(user) ? user : 'claude-code-user'
+function validToken(value) {
+  return typeof value === 'string' && value.startsWith(TOKEN_PREFIX) && value.length >= 40 && !/\s/.test(value)
 }
 
-function credentialsFrom(raw) {
-  try {
-    const oauth = JSON.parse(raw)?.claudeAiOauth
-    const token = oauth?.accessToken
-    if (typeof token !== 'string' || !token) {
-      return null
-    }
-    return { token, expiresAt: typeof oauth.expiresAt === 'number' ? oauth.expiresAt : null }
-  } catch {
+function readWindow(headers, name) {
+  const utilization = Number.parseFloat(headers.get(`anthropic-ratelimit-unified-${name}-utilization`))
+  const reset = Number.parseInt(headers.get(`anthropic-ratelimit-unified-${name}-reset`), 10)
+  if (!Number.isFinite(utilization)) {
     return null
   }
-}
-
-async function readKeychainToken() {
-  try {
-    const { stdout } = await execFileAsync(
-      'security',
-      ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', keychainAccount(), '-w'],
-      { timeout: 5_000 }
-    )
-    return credentialsFrom(stdout)
-  } catch {
-    return null
+  return {
+    percent: Math.min(100, Math.max(0, Math.round(utilization * 1000) / 10)),
+    resetsAt: Number.isFinite(reset) ? new Date(reset * 1000).toISOString() : null
   }
-}
-
-async function readCredentials() {
-  const fromKeychain = process.platform === 'darwin' ? await readKeychainToken() : null
-  if (fromKeychain) {
-    return fromKeychain
-  }
-  try {
-    return credentialsFrom(await readFile(join(homedir(), '.claude', '.credentials.json'), 'utf8'))
-  } catch {
-    return null
-  }
-}
-
-function toIso(value) {
-  if (value === undefined || value === null || value === '') {
-    return null
-  }
-  let time
-  if (typeof value === 'number' || /^\d+(\.\d+)?$/.test(String(value))) {
-    const number = Number(value)
-    time = number > 1e10 ? number : number * 1000
-  } else {
-    time = Date.parse(value)
-  }
-  return Number.isFinite(time) ? new Date(time).toISOString() : null
-}
-
-function windowFrom(raw) {
-  if (!raw) {
-    return null
-  }
-  const percent =
-    typeof raw.utilization === 'number'
-      ? raw.utilization
-      : typeof raw.used_percentage === 'number'
-        ? raw.used_percentage
-        : null
-  if (percent === null) {
-    return null
-  }
-  return { percent: Math.min(100, Math.max(0, percent)), resetsAt: toIso(raw.resets_at) }
 }
 
 async function requestUsage(token) {
-  const response = await fetch(USAGE_URL, {
+  const response = await fetch(MESSAGES_URL, {
+    method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
+      'anthropic-version': '2023-06-01',
       'anthropic-beta': 'oauth-2025-04-20',
-      'User-Agent': 'claude-code/2.1.0'
+      'content-type': 'application/json'
     },
+    body: JSON.stringify({
+      model: PROBE_MODEL,
+      max_tokens: 1,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: 'hi' }]
+    }),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
   })
+  const fiveHour = readWindow(response.headers, '5h')
+  const sevenDay = readWindow(response.headers, '7d')
+  if (fiveHour || sevenDay) {
+    const rejected = response.headers.get('anthropic-ratelimit-unified-status') === 'rejected'
+    const claim = response.headers.get('anthropic-ratelimit-unified-representative-claim')
+    return {
+      usage: {
+        ok: true,
+        fiveHour,
+        sevenDay,
+        limitedBy: rejected && (claim === 'five_hour' || claim === 'seven_day') ? claim : null,
+        checkedAt: new Date().toISOString()
+      }
+    }
+  }
   if (response.status === 401 || response.status === 403) {
     return { error: 'signed-out' }
   }
   if (response.status === 429) {
-    const seconds = Number(response.headers.get('retry-after'))
-    return { error: 'rate-limited', backoffMs: seconds > 0 ? seconds * 1000 : BACKOFF_MS }
+    return { error: 'rate-limited', backoffMs: BACKOFF_MS }
   }
-  if (!response.ok) {
-    return { error: 'unavailable' }
-  }
-  const data = await response.json()
-  const fiveHour = windowFrom(data.five_hour)
-  const sevenDay = windowFrom(data.seven_day)
-  const limitedBy =
-    fiveHour?.percent >= 100 ? 'five_hour' : sevenDay?.percent >= 100 ? 'seven_day' : null
-  return { usage: { ok: true, fiveHour, sevenDay, limitedBy, checkedAt: new Date().toISOString() } }
+  return { error: 'unavailable' }
 }
 
-async function readUsage(force) {
+async function readUsage(orca, force) {
   const now = Date.now()
   if (!force && lastGood && now - lastFetchAt < FETCH_EVERY_MS) {
     return lastGood
@@ -142,15 +92,12 @@ async function readUsage(force) {
     return lastGood ? { ...lastGood, error: 'rate-limited' } : { ok: false, reason: 'rate-limited' }
   }
   lastFetchAt = now
-  const credentials = await readCredentials()
-  if (!credentials) {
+  const token = await orca.secrets.get(TOKEN_KEY)
+  if (!token) {
     return { ok: false, reason: 'no-token' }
   }
-  if (credentials.expiresAt !== null && credentials.expiresAt <= now) {
-    return lastGood ? { ...lastGood, error: 'signed-out' } : { ok: false, reason: 'signed-out' }
-  }
   try {
-    const result = await requestUsage(credentials.token)
+    const result = await requestUsage(token)
     if (result.error) {
       if (result.error === 'rate-limited') {
         retryAt = now + result.backoffMs
@@ -292,8 +239,28 @@ async function readActivity() {
 
 /** @param {import('orca/worker').OrcaWorkerApi} orca */
 export default function activate(orca) {
+  orca.panels.handle('token.save', async (input) => {
+    const token = typeof input?.token === 'string' ? input.token.replace(/\s+/g, '') : ''
+    if (!validToken(token)) {
+      return { ok: false, reason: 'invalid-token' }
+    }
+    await orca.secrets.set(TOKEN_KEY, token)
+    lastGood = null
+    lastFetchAt = 0
+    retryAt = 0
+    return { ok: true }
+  })
+
+  orca.panels.handle('token.clear', async () => {
+    await orca.secrets.delete(TOKEN_KEY)
+    lastGood = null
+    lastFetchAt = 0
+    retryAt = 0
+    return { ok: true }
+  })
+
   orca.panels.handle('dashboard.read', async (input) => {
-    const usage = await readUsage(input?.force === true)
+    const usage = await readUsage(orca, input?.force === true)
     const history = await recordHistory(orca, usage)
     const activity = await readActivity()
     return { usage, history, ...activity, generatedAt: Date.now() }

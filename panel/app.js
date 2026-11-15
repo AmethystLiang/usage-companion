@@ -1,9 +1,16 @@
 import './vendor/skullet/element.mjs'
+
 const MINUTE = 60_000
 const DAY = 24 * 60 * MINUTE
 const WEEK = 7 * DAY
 const REFRESH_MS = MINUTE
 const STALE_MS = 10 * MINUTE
+const SKELETON_MIN_MS = 400
+const SETUP_COMMAND = 'claude setup-token'
+const COPY_ICON =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+const CHECK_ICON =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
 
 const EN = {
   title: 'Usage',
@@ -13,20 +20,18 @@ const EN = {
   loading: 'Reading usage…',
   noData: 'No usage data',
   reasons: {
-    'no-token': 'No Claude Code login was found on this Mac.',
-    'signed-out': 'Claude Code needs you to sign in again.',
+    'no-token': 'Connect your Claude account to see usage.',
+    'signed-out': 'Your token expired or was rejected.',
     'rate-limited': 'Claude is limiting usage checks. Retrying in a few minutes.',
+    'invalid-token': 'That token was not accepted.',
     unavailable: "Couldn't reach Claude's usage service right now."
   },
-  failed: 'Refresh failed. Showing the last reading.',
   stale: 'Usage has not updated since then.',
   limitedBy: { five_hour: 'Limited by the 5-hour session', seven_day: 'Limited by the 7-day limit' },
   kpiSession: '5-hour session',
   kpiWeekly: '7-day limit',
   remaining: '{d} remaining',
-  tokensNote: 'Each day as a share of your weekly limit (estimate).',
-  tokensNeedUsage: 'Shares appear once the week has some usage.',
-  tokensPctTip: '{day}: {pct}% of your week (~{n} tokens)',
+  resetPassed: 'Reset passed. Waiting for new data.',
   paceTitle: 'Weekly pace',
   paceOver: 'Burning fast. At this pace the limit runs out {when}.',
   paceOverOk: 'Ahead of pace, but the week still ends under the limit.',
@@ -42,9 +47,21 @@ const EN = {
   historyNote: 'The line fills in while this panel is open.',
   tokensTitle: 'Tokens, last 7 days',
   tokensTip: '{day}: {n} tokens',
+  tokensPctTip: '{day}: {pct}% of your week (~{n} tokens)',
+  tokensNote: 'Each day as a share of your weekly limit (estimate).',
+  tokensNeedUsage: 'Shares appear once the week has some usage.',
   skillsTitle: 'Skills, last 7 days',
   skillsEmpty: 'No skill calls in the last 7 days.',
-  skillTip: '{name}: {n} uses, last {when}'
+  skillTip: '{name}: {n} uses, last {when}',
+  setupTitle: 'Connect your Claude account',
+  setupSteps: ['Open a terminal and run:', 'Copy the token it prints.', 'Paste it below.'],
+  copy: 'Copy',
+  copied: 'Copied',
+  tokenPlaceholder: 'Paste your token',
+  saveToken: 'Save token',
+  removeToken: 'Remove token',
+  invalidToken: "That doesn't look like a Claude token. It starts with sk-ant-.",
+  rejected: 'Claude rejected this token. Create a new one with claude setup-token.'
 }
 
 const PT = {
@@ -55,20 +72,18 @@ const PT = {
   loading: 'Lendo o uso…',
   noData: 'Sem dados de uso',
   reasons: {
-    'no-token': 'Nenhum login do Claude Code encontrado neste Mac.',
-    'signed-out': 'O Claude Code precisa que você faça login de novo.',
+    'no-token': 'Conecte sua conta do Claude pra ver o uso.',
+    'signed-out': 'Seu token expirou ou foi recusado.',
     'rate-limited': 'O Claude está limitando as consultas de uso. Tentando de novo em alguns minutos.',
+    'invalid-token': 'Este token não foi aceito.',
     unavailable: 'Não consegui falar com o serviço de uso do Claude agora.'
   },
-  failed: 'Não consegui atualizar. Mostrando a última leitura.',
   stale: 'O uso não foi atualizado desde então.',
   limitedBy: { five_hour: 'Limitado pela sessão de 5 horas', seven_day: 'Limitado pelo limite semanal' },
   kpiSession: 'Sessão de 5 horas',
   kpiWeekly: 'Limite semanal',
   remaining: '{d} restantes',
-  tokensNote: 'Cada dia como parte do seu limite semanal (estimativa).',
-  tokensNeedUsage: 'As porcentagens aparecem quando a semana já tiver algum uso.',
-  tokensPctTip: '{day}: {pct}% da sua semana (~{n} tokens)',
+  resetPassed: 'Resetou. Aguardando novos dados.',
   paceTitle: 'Ritmo semanal',
   paceOver: 'Gastando rápido. Nesse ritmo o limite acaba {when}.',
   paceOverOk: 'Acima do ritmo, mas a semana ainda termina dentro do limite.',
@@ -84,19 +99,33 @@ const PT = {
   historyNote: 'A linha se preenche enquanto este painel está aberto.',
   tokensTitle: 'Tokens, últimos 7 dias',
   tokensTip: '{day}: {n} tokens',
+  tokensPctTip: '{day}: {pct}% da sua semana (~{n} tokens)',
+  tokensNote: 'Cada dia como parte do seu limite semanal (estimativa).',
+  tokensNeedUsage: 'As porcentagens aparecem quando a semana já tiver algum uso.',
   skillsTitle: 'Skills, últimos 7 dias',
   skillsEmpty: 'Nenhuma chamada de skill nos últimos 7 dias.',
-  skillTip: '{name}: {n} usos, último {when}'
+  skillTip: '{name}: {n} usos, último {when}',
+  setupTitle: 'Conecte sua conta do Claude',
+  setupSteps: ['Abra um terminal e rode:', 'Copie o token que ele mostrar.', 'Cole abaixo.'],
+  copy: 'Copiar',
+  copied: 'Copiado',
+  tokenPlaceholder: 'Cole seu token',
+  saveToken: 'Salvar token',
+  removeToken: 'Remover token',
+  invalidToken: 'Isso não parece um token do Claude. Ele começa com sk-ant-.',
+  rejected: 'O Claude recusou este token. Gere outro com claude setup-token.'
 }
 
 const locale = (window.orca && window.orca.locale) || navigator.language || 'en'
 const S = locale.toLowerCase().startsWith('pt') ? PT : EN
 const app = document.getElementById('app')
 const tip = document.getElementById('tip')
+const reveal = document.getElementById('reveal')
 
 const fmtRel = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
 const fmtClock = new Intl.DateTimeFormat(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit' })
 const fmtDay = new Intl.DateTimeFormat(locale, { weekday: 'short' })
+const fmtDayLong = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'short' })
 const fmtTime = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' })
 const fmtCompact = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 })
 const fmtNum = new Intl.NumberFormat(locale)
@@ -112,6 +141,27 @@ function relativeTo(time, now) {
     return fmtRel.format(Math.round(minutes / 60), 'hour')
   }
   return fmtRel.format(minutes, 'minute')
+}
+
+function formatRemaining(ms) {
+  const minutes = Math.max(0, Math.round(ms / MINUTE))
+  const days = Math.floor(minutes / (24 * 60))
+  const hours = Math.floor((minutes % (24 * 60)) / 60)
+  const mins = minutes % 60
+  if (days > 0) {
+    return `${days} d ${hours} h`
+  }
+  if (hours > 0) {
+    return `${hours} h ${mins} min`
+  }
+  return `${mins} min`
+}
+
+function dayKeyOf(time) {
+  const date = new Date(time)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
 }
 
 function pace(window, now) {
@@ -155,31 +205,25 @@ function paceSentence(info, now) {
 function cycleSamples(info, history, now) {
   const samples = history.filter((s) => s.r === info.endIso && s.t >= info.start && s.t <= now)
   samples.push({ t: now, p: info.p, r: info.endIso })
-  return samples.sort((a, b) => a.t - b.t)
+  samples.sort((a, b) => a.t - b.t)
+  const lastOfDay = new Map()
+  for (const sample of samples) {
+    lastOfDay.set(dayKeyOf(sample.t), sample)
+  }
+  return [...lastOfDay.values()]
 }
 
-function paceTip(info, samples, now, time) {
-  const lines = [`<strong>${esc(fmtClock.format(time))}</strong>`]
-  const ideal = ((time - info.start) / WEEK) * 100
-  if (time > now) {
-    if (info.projected !== null) {
-      const value = info.p + ((time - now) / (info.end - now)) * (info.projected - info.p)
-      lines.push(`${esc(S.legendProj)}: ${Math.round(value)}%`)
-    }
-  } else {
-    const before = samples.filter((s) => s.t <= time)
-    const last = before[before.length - 1]
-    if (last) {
-      const diff = last.p - ideal
-      const gap = Math.round(Math.abs(diff))
-      const note = gap === 0 ? '' : ` · ${esc(t(diff > 0 ? S.aboveIdeal : S.belowIdeal, { n: gap }))}`
-      lines.push(`${esc(S.legendReal)}: ${Math.round(last.p)}%${note}`)
-    } else {
-      lines.push(`${esc(S.legendReal)}: ${esc(S.noSample)}`)
-    }
-  }
-  lines.push(`${esc(S.legendIdeal)}: ${Math.round(ideal)}%`)
-  return lines.join('<br>')
+function paceTip(info, point) {
+  const day = fmtDayLong.format(point.t)
+  const ideal = ((point.t - info.start) / WEEK) * 100
+  const diff = point.p - ideal
+  const gap = Math.round(Math.abs(diff))
+  const note = gap === 0 ? '' : ` · ${esc(t(diff > 0 ? S.aboveIdeal : S.belowIdeal, { n: gap }))}`
+  return [
+    `<strong>${esc(day)}</strong>`,
+    `${esc(S.legendReal)}: ${Math.round(point.p)}%${note}`,
+    `${esc(S.legendIdeal)}: ${Math.round(ideal)}%`
+  ].join('<br>')
 }
 
 function paceChart(width, info, samples, now) {
@@ -212,6 +256,10 @@ function paceChart(width, info, samples, now) {
     points.length > 1
       ? `<polyline points="${points.map((p) => p.map((n) => n.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="var(--orca-primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`
       : ''
+  const dailyDots = points
+    .slice(0, -1)
+    .map(([px, py]) => `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3" fill="var(--orca-primary)"/>`)
+    .join('')
 
   const nowX = x(now).toFixed(1)
   const nowY = y(info.p).toFixed(1)
@@ -221,12 +269,11 @@ function paceChart(width, info, samples, now) {
       : ''
 
   const dot = `<circle cx="${nowX}" cy="${nowY}" r="4.5" fill="var(--orca-primary)" stroke="var(--orca-card)" stroke-width="2"/>`
-
   const guide = `<line id="pace-guide" x1="0" x2="0" y1="${pad.t}" y2="${pad.t + innerH}" stroke="var(--orca-muted-foreground)" stroke-width="1" opacity="0"/>`
   const hit = `<rect data-pace="1" x="${pad.l}" y="${pad.t}" width="${innerW}" height="${innerH}" fill="transparent"/>`
 
   return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${esc(S.paceTitle)}">
-    ${grid}${dayLabels}${ideal}${projection}${real}${guide}${dot}${hit}
+    ${grid}${dayLabels}${ideal}${projection}${real}${dailyDots}${guide}${dot}${hit}
   </svg>`
 }
 
@@ -247,32 +294,27 @@ function tokensChart(width, days, capacity) {
       const tipText = capacity
         ? t(S.tokensPctTip, { day: label, pct: fmtNum.format(Math.round(share)), n: fmtCompact.format(d.tokens) })
         : t(S.tokensTip, { day: label, n: fmtNum.format(d.tokens) })
+      const pctLabel =
+        capacity && d.tokens
+          ? `<text x="${(i * slot + slot / 2).toFixed(1)}" y="${(yy - 4).toFixed(1)}" text-anchor="middle" class="tiny" fill="var(--orca-foreground)" pointer-events="none">${esc(fmtNum.format(Math.round(share)))}%</text>`
+          : ''
       return `<rect x="${(i * slot).toFixed(1)}" y="0" width="${slot.toFixed(1)}" height="${height - pad.b}" fill="transparent" data-tip="${esc(tipText)}"/>
         <rect x="${xx.toFixed(1)}" y="${yy.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="var(--orca-primary)" opacity="${d.tokens ? 1 : 0.25}" pointer-events="none"/>
-        ${capacity && d.tokens ? `<text x="${(i * slot + slot / 2).toFixed(1)}" y="${(yy - 4).toFixed(1)}" text-anchor="middle" class="tiny" fill="var(--orca-foreground)" pointer-events="none">${esc(fmtNum.format(Math.round(share)))}%</text>` : ''}
+        ${pctLabel}
         <text x="${(i * slot + slot / 2).toFixed(1)}" y="${height - 6}" text-anchor="middle" class="tiny" fill="var(--orca-muted-foreground)" pointer-events="none">${esc(label)}</text>`
     })
     .join('')
   return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${esc(S.tokensTitle)}">${bars}</svg>`
 }
 
-function formatRemaining(ms) {
-  const minutes = Math.max(0, Math.round(ms / MINUTE))
-  const days = Math.floor(minutes / (24 * 60))
-  const hours = Math.floor((minutes % (24 * 60)) / 60)
-  const mins = minutes % 60
-  if (days > 0) {
-    return `${days} d ${hours} h`
-  }
-  if (hours > 0) {
-    return `${hours} h ${mins} min`
-  }
-  return `${mins} min`
-}
-
 function usageCard(label, window, now) {
   if (!window) {
     return ''
+  }
+  if (window.resetsAt && Date.parse(window.resetsAt) <= now) {
+    return `<div class="card kpi"><div class="label">${esc(label)}</div>
+    <div class="value muted">—</div>
+    <div class="sub">${esc(S.resetPassed)}</div></div>`
   }
   const percent = clamp(Math.round(window.percent), 0, 100)
   let reset = ''
@@ -284,13 +326,6 @@ function usageCard(label, window, now) {
     <div class="value ${percent >= 90 ? 'over' : ''}">${percent}%</div>
     <div class="bar"><i class="${percent >= 90 ? 'hot' : ''}" style="width:${percent}%"></i></div>
     <div class="sub">${reset}</div></div>`
-}
-
-function dayKeyOf(time) {
-  const date = new Date(time)
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${date.getFullYear()}-${month}-${day}`
 }
 
 function weeklyCapacity(usage, tokensByDay) {
@@ -305,26 +340,55 @@ function weeklyCapacity(usage, tokensByDay) {
 
 let paceCtx = null
 
-const reveal = document.getElementById('reveal')
-
-function sampleData(now) {
-  return {
-    usage: {
-      ok: true,
-      fiveHour: { percent: 40, resetsAt: new Date(now + 2 * 60 * MINUTE).toISOString() },
-      sevenDay: { percent: 60, resetsAt: new Date(now + 3 * DAY).toISOString() },
-      limitedBy: null,
-      checkedAt: new Date(now).toISOString()
-    },
-    history: [],
-    skills: [
-      { name: 'skill-name', count: 4, lastUsed: now },
-      { name: 'skill-name-two', count: 2, lastUsed: now },
-      { name: 'skill-name-three', count: 1, lastUsed: now }
-    ],
-    tokensByDay: Array.from({ length: 7 }, (_, i) => ({ day: dayKeyOf(now - (6 - i) * DAY), tokens: 1_000_000 })),
-    generatedAt: now
-  }
+function setupForm(reason) {
+  const card = document.createElement('section')
+  card.className = 'card setup'
+  card.innerHTML = `
+    <h2>${esc(S.setupTitle)}</h2>
+    <ol class="steps"><li>${esc(S.setupSteps[0])}</li></ol>
+    <div class="command"><code>claude <span class="nowrap">setup-token</span></code><button class="icon-btn" type="button" data-role="copy" aria-label="${esc(S.copy)}" title="${esc(S.copy)}">${COPY_ICON}</button></div>
+    <ol class="steps" start="2">${S.setupSteps.slice(1).map((step) => `<li>${esc(step)}</li>`).join('')}</ol>
+    ${reason === 'signed-out' ? `<p class="error">${esc(S.rejected)}</p>` : ''}
+    <form class="token-form" autocomplete="off">
+      <input type="password" name="token" placeholder="${esc(S.tokenPlaceholder)}" spellcheck="false" autocomplete="off" />
+      <button class="icon" type="submit">${esc(S.saveToken)}</button>
+    </form>
+    <p class="error" data-role="error" hidden></p>`
+  const copyButton = card.querySelector('[data-role="copy"]')
+  copyButton.addEventListener('click', () => {
+    const field = document.createElement('textarea')
+    field.value = SETUP_COMMAND
+    field.setAttribute('readonly', '')
+    field.style.position = 'fixed'
+    field.style.opacity = '0'
+    document.body.append(field)
+    field.select()
+    const copied = document.execCommand('copy')
+    field.remove()
+    copyButton.innerHTML = copied ? CHECK_ICON : COPY_ICON
+    setTimeout(() => (copyButton.innerHTML = COPY_ICON), 1500)
+  })
+  const form = card.querySelector('form')
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const input = form.querySelector('input')
+    const error = card.querySelector('[data-role="error"]')
+    const token = input.value
+    input.value = ''
+    let result
+    try {
+      result = await window.orca.plugin.request('token.save', { token })
+    } catch {
+      result = { ok: false }
+    }
+    if (!result.ok) {
+      error.textContent = S.invalidToken
+      error.hidden = false
+      return
+    }
+    void load(true)
+  })
+  return card
 }
 
 function buildView(data) {
@@ -333,6 +397,11 @@ function buildView(data) {
   view.className = 'view'
   const { usage } = data
   if (!usage.ok) {
+    if (['no-token', 'signed-out', 'invalid-token'].includes(usage.reason)) {
+      view.innerHTML = `<header><h1>${esc(S.title)}</h1></header>`
+      view.append(setupForm(usage.reason))
+      return view
+    }
     view.innerHTML = `<header><h1>${esc(S.title)}</h1></header>
       <div class="card"><p class="empty">${esc(S.noData)}</p><p class="muted small">${esc(S.reasons[usage.reason])}</p>
         <button class="icon" id="retry" style="margin-top:10px">${esc(S.retry)}</button></div>`
@@ -341,7 +410,8 @@ function buildView(data) {
   }
 
   const fresh = usage.checkedAt && now - Date.parse(usage.checkedAt) <= STALE_MS
-  const info = pace(usage.sevenDay, now)
+  const weekReset = usage.sevenDay?.resetsAt && Date.parse(usage.sevenDay.resetsAt) <= now
+  const info = weekReset ? null : pace(usage.sevenDay, now)
   const weekAgo = now - 7 * DAY
   const skills = (data.skills ?? []).filter((s) => s.lastUsed >= weekAgo)
   const capacity = weeklyCapacity(usage, data.tokensByDay ?? [])
@@ -389,8 +459,16 @@ function buildView(data) {
         <div id="tokens-chart" class="chart" style="min-height:130px"></div></section>
     </div>
     ${paceBlock}
+    <div class="row" style="justify-content:flex-end"><button class="icon ghost" id="remove-token">${esc(S.removeToken)}</button></div>
   `
   view.querySelector('#refresh')?.addEventListener('click', () => void load(true))
+  view.querySelector('#remove-token')?.addEventListener('click', async () => {
+    await window.orca.plugin.request('token.clear', {})
+    void load(true)
+  })
+  if (usage.error === 'signed-out') {
+    view.append(setupForm('signed-out'))
+  }
   return view
 }
 
@@ -401,7 +479,7 @@ function mountCharts(view, data) {
   if (!usage.ok) {
     return
   }
-  const info = pace(usage.sevenDay, now)
+  const info = usage.sevenDay?.resetsAt && Date.parse(usage.sevenDay.resetsAt) > now ? pace(usage.sevenDay, now) : null
   const samples = info ? cycleSamples(info, data.history ?? [], now) : []
   if (info) {
     paceCtx = { info, samples, now }
@@ -444,18 +522,19 @@ function hoverPace(event, hit) {
   if (!paceCtx) {
     return
   }
-  const { info, samples, now } = paceCtx
+  const { info, samples } = paceCtx
   const box = hit.getBoundingClientRect()
   const frac = clamp((event.clientX - box.left) / box.width, 0, 1)
-  const time = info.start + frac * WEEK
+  const cursorTime = info.start + frac * WEEK
+  const point = samples.reduce((best, s) => (Math.abs(s.t - cursorTime) < Math.abs(best.t - cursorTime) ? s : best))
   const guide = document.getElementById('pace-guide')
   if (guide) {
-    const svgX = Number(hit.getAttribute('x')) + frac * Number(hit.getAttribute('width'))
+    const svgX = Number(hit.getAttribute('x')) + ((point.t - info.start) / WEEK) * Number(hit.getAttribute('width'))
     guide.setAttribute('x1', svgX.toFixed(1))
     guide.setAttribute('x2', svgX.toFixed(1))
     guide.setAttribute('opacity', '1')
   }
-  showTip(paceTip(info, samples, now, time), event.clientX, event.clientY)
+  showTip(paceTip(info, point), event.clientX, event.clientY)
 }
 
 app.addEventListener('pointermove', (event) => {
@@ -473,9 +552,27 @@ app.addEventListener('pointermove', (event) => {
 })
 app.addEventListener('pointerleave', hideTip)
 
-let lastData = null
+function sampleData(now) {
+  return {
+    usage: {
+      ok: true,
+      fiveHour: { percent: 40, resetsAt: new Date(now + 2 * 60 * MINUTE).toISOString() },
+      sevenDay: { percent: 60, resetsAt: new Date(now + 3 * DAY).toISOString() },
+      limitedBy: null,
+      checkedAt: new Date(now).toISOString()
+    },
+    history: [],
+    skills: [
+      { name: 'skill-name', count: 4, lastUsed: now },
+      { name: 'skill-name-two', count: 2, lastUsed: now },
+      { name: 'skill-name-three', count: 1, lastUsed: now }
+    ],
+    tokensByDay: Array.from({ length: 7 }, (_, i) => ({ day: dayKeyOf(now - (6 - i) * DAY), tokens: 1_000_000 })),
+    generatedAt: now
+  }
+}
 
-const SKELETON_MIN_MS = 400
+let lastData = null
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function load(force = false) {
