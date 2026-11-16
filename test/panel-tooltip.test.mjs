@@ -13,18 +13,24 @@ class FakeElement {
     this.htmlWrites = []
     this.textWrites = []
     this.attrs = {}
+    // Like the DOM, either assignment replaces everything that was there before.
+    this.content = { html: false, value: '' }
   }
   set innerHTML(value) {
     this.htmlWrites.push(String(value))
+    this.content = { html: true, value: String(value) }
   }
   get innerHTML() {
-    return this.htmlWrites.at(-1) ?? ''
+    const { html, value } = this.content
+    return html ? value : value.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch])
   }
   set textContent(value) {
     this.textWrites.push(String(value))
+    this.content = { html: false, value: String(value) }
   }
   get textContent() {
-    return this.textWrites.at(-1) ?? ''
+    const { html, value } = this.content
+    return html ? value.replace(/<[^>]*>/g, '') : value
   }
   addEventListener(type, fn) {
     ;(this.listeners[type] ??= []).push(fn)
@@ -131,15 +137,26 @@ function skillTipFor(name) {
   return null
 }
 
+function hoverSkill(tipText) {
+  const li = new FakeElement()
+  li.dataset.tip = tipText
+  li.closest = (selector) => (selector === '[data-tip]' ? li : null)
+  app.fire('pointermove', { target: li, clientX: 10, clientY: 10 })
+}
+
+function hoverPace() {
+  const hit = new FakeElement()
+  hit.attrs = { x: '36', width: '300' }
+  hit.matches = (selector) => selector === 'rect[data-pace]'
+  app.fire('pointermove', { target: hit, clientX: 150, clientY: 40 })
+}
+
 test('a skill name with markup is shown as plain text in the tooltip', () => {
   const tipText = skillTipFor(payload)
   assert.ok(tipText, 'the panel should render a data-tip for the skill')
 
-  const li = new FakeElement()
-  li.dataset.tip = tipText
-  li.closest = (selector) => (selector === '[data-tip]' ? li : null)
   const htmlWritesBefore = tip.htmlWrites.length
-  app.fire('pointermove', { target: li, clientX: 10, clientY: 10 })
+  hoverSkill(tipText)
 
   assert.equal(tip.htmlWrites.length, htmlWritesBefore, 'data-tip text must not be written as HTML')
   assert.equal(tip.textContent, tipText)
@@ -147,10 +164,19 @@ test('a skill name with markup is shown as plain text in the tooltip', () => {
 })
 
 test('the pace tooltip still renders its markup', () => {
-  const hit = new FakeElement()
-  hit.attrs = { x: '36', width: '300' }
-  hit.matches = (selector) => selector === 'rect[data-pace]'
-  app.fire('pointermove', { target: hit, clientX: 150, clientY: 40 })
+  hoverPace()
 
   assert.match(tip.innerHTML, /^<strong>.+<\/strong><br>/)
+})
+
+test('moving from the pace tooltip to a skill tooltip leaves only plain text', () => {
+  const tipText = skillTipFor(payload)
+  hoverPace()
+  assert.equal(tip.content.html, true)
+
+  hoverSkill(tipText)
+
+  assert.equal(tip.content.html, false, 'the earlier pace markup must be replaced')
+  assert.equal(tip.textContent, tipText)
+  assert.doesNotMatch(tip.innerHTML, /<[a-z]/i)
 })
